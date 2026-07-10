@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Assistant Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 0 1 10 10c0 5.523-4.477 10-10 10S2 17.523 2 12A10 10 0 0 1 12 2z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+                    <span>Assistant Portal</span>
+                </div>
+                <button id="new-chat-btn" class="btn btn-primary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    New Chat
+                </button>
+            </div>
+            
+            <div class="threads-section">
+                <h3>💬 Active Sessions</h3>
+                <ul id="threads-list" class="threads-list">
+                    <!-- Threads will be populated dynamically -->
+                </ul>
+            </div>
+            
+            <div class="sidebar-footer">
+                <h3>📄 Knowledge Base</h3>
+                <div class="upload-zone" id="upload-zone">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    <p>Drag & Drop PDF or Click to Upload</p>
+                    <input type="file" id="file-input" accept=".pdf" style="display: none;">
+                </div>
+                <div class="upload-status" id="upload-status"></div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="chat-container">
+            <header class="chat-header">
+                <h1 class="main-title">Intelligent Chat Agent</h1>
+                <div class="active-thread-badge">
+                    <span id="active-thread-id">Session: None</span>
+                </div>
+            </header>
+
+            <div class="chat-messages" id="chat-messages">
+                <div class="welcome-message">
+                    <h2>Hello! How can I assist you today?</h2>
+                    <p>I have access to your PDF knowledge base, mathematical tools, Wikipedia, and live stock queries.</p>
+                </div>
+            </div>
+
+            <footer class="chat-footer">
+                <form id="chat-form" class="chat-input-wrapper">
+                    <input type="text" id="user-input" placeholder="Ask anything..." autocomplete="off" required>
+                    <button type="submit" class="send-btn">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                    </button>
+                </form>
+            </footer>
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
