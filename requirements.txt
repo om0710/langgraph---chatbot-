@@ -13,3 +13,5 @@ langchain-huggingface
 sentence-transformers
 fastapi
 uvicorn
+torch
+torchvision
