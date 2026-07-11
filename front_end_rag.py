@@ -81,14 +81,15 @@ st.markdown("""
         padding: 24px 16px !important;
     }
     
-    /* Logo Styling */
+    /* Logo Styling and top padding to align with main chat title horizontally */
     .logo {
         display: flex;
         align-items: center;
         gap: 12px;
         font-size: 18px;
         font-weight: 700;
-        margin-bottom: 24px;
+        padding-top: 3.5rem !important;
+        margin-bottom: 24px !important;
         padding-left: 8px;
     }
     
@@ -211,20 +212,13 @@ st.markdown("""
         background-color: rgba(124, 58, 237, 0.04) !important;
     }
     
-    /* Hide Streamlit default dropzone file uploader labels/buttons */
-    [data-testid="stFileUploader"] section {
-        background-color: transparent !important;
-        padding: 0 !important;
-    }
-    [data-testid="stFileUploader"] section > input + div {
-        display: none !important;
-    }
-    [data-testid="stFileUploader"] section > div {
+    /* Hide all default elements inside the dropzone container to prevent overlapping */
+    [data-testid="stFileUploaderDropzone"] > * {
         display: none !important;
     }
     
     /* Inject custom cloud upload icon */
-    [data-testid="stFileUploader"] section::before {
+    [data-testid="stFileUploaderDropzone"]::before {
         content: "" !important;
         display: block !important;
         width: 36px !important;
@@ -237,7 +231,7 @@ st.markdown("""
     }
     
     /* Inject custom upload instruction text */
-    [data-testid="stFileUploader"] section::after {
+    [data-testid="stFileUploaderDropzone"]::after {
         content: "Drag & Drop PDF or Click to Upload" !important;
         color: #94a3b8 !important;
         font-size: 13px !important;
