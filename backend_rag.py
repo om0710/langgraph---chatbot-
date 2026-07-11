@@ -24,10 +24,15 @@ load_dotenv()
 
 # ---------------- LLM ---------------- #
 
-llm = ChatGroq(
+llm_primary = ChatGroq(
     model="llama-3.3-70b-versatile",
     temperature=0
 )
+llm_fallback = ChatGroq(
+    model="qwen/qwen3-32b",
+    temperature=0
+)
+llm = llm_primary.with_fallbacks([llm_fallback])
 
 def grade_document(question: str, document_content: str) -> str:
     prompt = f"""System: You are a grader assessing relevance of a retrieved document to a user question.
@@ -173,12 +178,12 @@ def chat_node(state: ChatState):
     system_instruction = SystemMessage(
         content=(
             "You are a helpful and friendly assistant. System instructions:\n"
-            "- Do NOT call any tools (especially `wikipedia_search` or `rag_tool`) for personal introductions, greetings, chit-chat, or questions about the user's name (e.g. 'my name is om', 'hii', 'what is my name?'). Just reply directly as a friendly chat.\n"
-            "- For questions requiring PDF contents or general knowledge, you MUST first call the appropriate tool (`rag_tool` or `wikipedia_search`) to retrieve the context. Only say that you do not know if the tools return no information.\n"
-            "- For stock prices/quotes/values, you MUST call the `get_stock_price` tool. The returned value metric represents its stock price in USD. You MUST explicitly output this value metric to the user as the actual stock price (e.g., if the tool returns 'Value metric for AAPL: 316.22', your response MUST state that the stock price is $316.22). Do NOT hide, omit, or replace it with a disclaimer, and do NOT claim the value is simulated or fictional. Report it as the actual stock price.\n"
-            "- Only call `rag_tool` for queries about uploaded files (resumes, certificates, documents).\n"
+            "- Do NOT call any tools (especially wikipedia_search or rag_tool) for personal introductions, greetings, chit-chat, or questions about the user's name (e.g. 'my name is om', 'hii', 'what is my name?'). Just reply directly as a friendly chat.\n"
+            "- For questions requiring PDF contents or general knowledge, you MUST first call the appropriate tool (rag_tool or wikipedia_search) to retrieve the context. Only say that you do not know if the tools return no information.\n"
+            "- For stock prices/quotes/values, you MUST call the get_stock_price tool. The returned value metric represents its stock price in USD. You MUST explicitly output this value metric to the user as the actual stock price (e.g., if the tool returns 'Value metric for AAPL: 316.22', your response MUST state that the stock price is $316.22). Do NOT hide, omit, or replace it with a disclaimer, and do NOT claim the value is simulated or fictional. Report it as the actual stock price.\n"
+            "- Only call rag_tool for queries about uploaded files (resumes, certificates, documents).\n"
             "- The candidate/student's name on a certificate is the person who 'successfully completed' the course (e.g., 'Om Bansal'). Do NOT confuse the student with directors, signers, or authorizers listed at the bottom (like 'Amanda Brophy').\n"
-            "- Call `calculator` for math, `wikipedia_search` for general knowledge, and `get_current_time` for system time.\n"
+            "- Call calculator for math, wikipedia_search for general knowledge, and get_current_time for system time.\n"
             "- IMPORTANT: You MUST include the exact numbers, names, and facts returned by tools in your response. Do not censor or alter them."
         )
     )
@@ -232,14 +237,24 @@ workflow = graph.compile(
 # ---------------- Thread Utility ---------------- #
 
 def retrieve_all_threads():
-
+    import sqlite3
     threads = []
-
-    for checkpoint in memory.list(None):
-
-        thread = checkpoint.config["configurable"]["thread_id"]
-
-        if thread not in threads:
-            threads.append(thread)
-
+    try:
+        conn = sqlite3.connect("chatbot.db")
+        cursor = conn.cursor()
+        # Query distinct thread IDs ordered by their latest checkpoints first
+        cursor.execute("SELECT thread_id, MAX(checkpoint_id) as latest FROM checkpoints GROUP BY thread_id ORDER BY latest DESC;")
+        rows = cursor.fetchall()
+        for row in rows:
+            threads.append(row[0])
+        conn.close()
+    except Exception as e:
+        # Fallback to memory.list(None)
+        try:
+            for checkpoint in memory.list(None):
+                thread = checkpoint.config["configurable"]["thread_id"]
+                if thread not in threads:
+                    threads.append(thread)
+        except Exception:
+            pass
     return threads

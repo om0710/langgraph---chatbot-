@@ -15,4 +15,6 @@ fastapi
 uvicorn
 torch
 torchvision
-langgraph-checkpoint
+langgraph==1.2.2
+langgraph-checkpoint==4.1.1
+langgraph-checkpoint-sqlite==3.1.0
