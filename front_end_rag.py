@@ -74,23 +74,56 @@ st.markdown("""
         backdrop-filter: blur(20px) !important;
         border-right: 1px solid rgba(255, 255, 255, 0.06) !important;
     }
-    [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
-        padding-top: 1.5rem !important;
+    /* Streamlit reserves a separate header row at the top of the sidebar
+       (stSidebarHeader) that holds the collapse-arrow control. Hiding just
+       the broken icon earlier left this row's own height/padding behind -
+       that reserved space was the remaining gap above "Assistant Portal".
+       Collapsing the row itself removes it completely. */
+    [data-testid="stSidebarHeader"] {
+        display: none !important;
+        height: 0 !important;
+        min-height: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
     }
-    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
-        padding: 24px 16px !important;
+    /* Defensive: if Streamlit ever detects a multipage app (a pages/ folder),
+       it injects a navigation block above stSidebarUserContent with its own
+       height, independent of the header fix above. Collapsing it too. */
+    [data-testid="stSidebarNav"] {
+        display: none !important;
+        height: 0 !important;
+        min-height: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+    /* Top padding is zeroed out here AND on the vertical block below so
+       there is exactly ONE source of top spacing left in the sidebar: the
+       .logo rule further down. That's what makes alignment with the main
+       title reliable instead of a guessing game across multiple stacked
+       padding values. */
+    [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
+        padding-top: 0 !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] > [data-testid="stVerticalBlock"] {
+        padding: 0 16px 24px 16px !important;
     }
     
-    /* Logo Styling and top padding to align with main chat title horizontally */
+    /* Logo Styling - this padding-top is the ONLY top-spacing source in the
+       sidebar now, set to the exact same 3.5rem as .block-container's
+       padding-top (the main title's spacing), so the two line up. */
     .logo {
         display: flex;
         align-items: center;
-        gap: 12px;
-        font-size: 18px;
-        font-weight: 700;
+        gap: 14px;
+        font-size: 30px;
+        font-weight: 800;
         padding-top: 3.5rem !important;
         margin-bottom: 24px !important;
         padding-left: 8px;
+    }
+    .logo svg {
+        width: 32px !important;
+        height: 32px !important;
     }
     
     /* Custom HTML Thread Items styling matching HTML5 mockup exactly */
@@ -122,8 +155,15 @@ st.markdown("""
         box-shadow: 0 4px 15px rgba(124, 58, 237, 0.05) !important;
     }
     
-    /* Primary Button Custom Styling (+ New Chat) */
-    div[data-testid="stButton"] button[data-testid="baseButton-primary"] {
+    /* Primary Button Custom Styling (+ New Chat)
+       Multiple selectors are targeted since Streamlit has renamed its
+       internal data-testid attributes across versions (baseButton-primary,
+       stBaseButton-primary, kind="primary", etc). Keeping all of them makes
+       the styling resilient regardless of which Streamlit version is running. */
+    div[data-testid="stButton"] button[data-testid="baseButton-primary"],
+    div[data-testid="stButton"] button[data-testid="stBaseButton-primary"],
+    div[data-testid="stButton"] button[kind="primary"],
+    div[data-testid="stButton"] button[kind="primaryFormSubmit"] {
         background: linear-gradient(135deg, #7c3aed, #4f46e5) !important;
         color: white !important;
         border: none !important;
@@ -136,7 +176,10 @@ st.markdown("""
         padding: 12px 16px !important;
         width: 100% !important;
     }
-    div[data-testid="stButton"] button[data-testid="baseButton-primary"]:hover {
+    div[data-testid="stButton"] button[data-testid="baseButton-primary"]:hover,
+    div[data-testid="stButton"] button[data-testid="stBaseButton-primary"]:hover,
+    div[data-testid="stButton"] button[kind="primary"]:hover,
+    div[data-testid="stButton"] button[kind="primaryFormSubmit"]:hover {
         background: linear-gradient(135deg, #8b5cf6, #6366f1) !important;
         transform: translateY(-2px) !important;
         box-shadow: 0 8px 25px rgba(124, 58, 237, 0.4) !important;
@@ -161,29 +204,58 @@ st.markdown("""
         border-color: rgba(255, 255, 255, 0.06) !important;
     }
     
-    /* Chat Message Bubbles styling */
-    .stChatMessage {
-        background-color: rgba(255, 255, 255, 0.02) !important;
-        border: 1px solid rgba(255, 255, 255, 0.06) !important;
-        border-radius: 16px !important;
-        padding: 16px 20px !important;
-        margin-bottom: 16px !important;
-        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1) !important;
-        backdrop-filter: blur(10px) !important;
-        transition: all 0.3s ease !important;
+    /* Chat Message Bubbles styling
+       Rendered via our own HTML/CSS (see .chat-row / .chat-bubble below)
+       instead of relying on Streamlit's st.chat_message internals, whose
+       data-testid attributes have changed across Streamlit versions. */
+    .chat-scroll-wrapper {
+        max-width: 800px;
+        margin: 0 auto;
     }
-    .stChatMessage[data-testid="stChatMessageUser"] {
-        background: linear-gradient(135deg, #7c3aed, #4f46e5) !important;
-        color: white !important;
-        border: none !important;
-        border-bottom-right-radius: 4px !important;
-        box-shadow: 0 4px 20px rgba(124, 58, 237, 0.15) !important;
+    .chat-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        margin-bottom: 16px;
     }
-    .stChatMessage[data-testid="stChatMessageAssistant"] {
-        background-color: rgba(255, 255, 255, 0.02) !important;
-        border: 1px solid rgba(255, 255, 255, 0.06) !important;
-        color: #f8fafc !important;
-        border-bottom-left-radius: 4px !important;
+    .chat-row.user {
+        flex-direction: row-reverse;
+    }
+    .chat-avatar {
+        flex-shrink: 0;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 17px;
+        background-color: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .chat-bubble {
+        max-width: 75%;
+        padding: 16px 20px;
+        border-radius: 16px;
+        font-size: 15px;
+        line-height: 1.6;
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+        backdrop-filter: blur(10px);
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+    .chat-bubble.user {
+        background: linear-gradient(135deg, #7c3aed, #4f46e5);
+        color: #ffffff;
+        border: none;
+        border-bottom-right-radius: 4px;
+        box-shadow: 0 4px 20px rgba(124, 58, 237, 0.15);
+    }
+    .chat-bubble.assistant {
+        background-color: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        color: #f8fafc;
+        border-bottom-left-radius: 4px;
     }
     
     /* Code blocks customization */
@@ -267,9 +339,48 @@ st.markdown("""
         transform: scale(1.05) !important;
     }
     
-    /* Restore icon font rendering for collapse arrow button */
-    [data-testid="collapsedControl"] * {
-        font-family: "Source Sans Pro", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+    /* The sidebar collapse/expand controls render their icon via Streamlit's
+       Material Symbols ligature text (e.g. "keyboard_double_arrow_left/right"),
+       and that font isn't loading here, so the raw text shows instead of an
+       arrow glyph. Hiding every possible testid/element these controls can
+       use (this varies by Streamlit version) removes it completely. */
+    [data-testid="collapsedControl"],
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="stExpandSidebarButton"],
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="stIconMaterial"],
+    button:has(> [data-testid="stIconMaterial"]) {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0px !important;
+        width: 0px !important;
+    }
+
+    /* ---------------- Empty State Welcome Screen ---------------- */
+    .empty-state-wrapper {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        min-height: 55vh;
+        padding: 0 24px;
+    }
+    .empty-state-title {
+        font-size: 30px;
+        font-weight: 800;
+        color: #f8fafc;
+        letter-spacing: -0.02em;
+        margin-bottom: 14px;
+        font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .empty-state-subtitle {
+        font-size: 15px;
+        font-weight: 500;
+        color: #94a3b8;
+        max-width: 560px;
+        line-height: 1.6;
+        font-family: 'Plus Jakarta Sans', sans-serif;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -327,7 +438,15 @@ with st.sidebar:
     st.markdown("### 💬 ACTIVE SESSIONS")
 
     # List chat threads inside a scrollable container
-    with st.container(height=320):
+    # (border=False avoids the default bordered box that newer Streamlit
+    # versions render around st.container(height=...) by default)
+    try:
+        sessions_container = st.container(height=320, border=False)
+    except TypeError:
+        # Older Streamlit versions don't accept the `border` kwarg
+        sessions_container = st.container(height=320)
+
+    with sessions_container:
         for thread in st.session_state.chat_threads:
             short_id = thread[:8] + "..." if len(thread) > 8 else thread
             is_current = (thread == st.session_state.thread_id)
@@ -377,15 +496,66 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ---------------- Chat History ----------------
-for msg in st.session_state.messages:
-    if isinstance(msg, HumanMessage):
-        with st.chat_message("user", avatar="👤"):
-            st.markdown(msg.content)
-    elif isinstance(msg, AIMessage):
-        if msg.content:
-            with st.chat_message("assistant", avatar="🤖"):
-                st.markdown(msg.content)
+
+# ---------------- Custom Bubble Renderer ----------------
+# Streamlit's st.chat_message() relies on internal data-testid attributes
+# (stChatMessageUser / stChatMessageAssistant) that have changed across
+# Streamlit versions, which is why the purple/dark bubble styling was not
+# applying. Rendering our own HTML bubble in a single st.markdown() call
+# guarantees the exact look regardless of the Streamlit version installed,
+# without touching any backend/workflow logic.
+import html as _html
+import re as _re
+
+
+def _format_bubble_text(content: str) -> str:
+    """Lightly convert markdown-ish text to safe HTML for bubble display."""
+    escaped = _html.escape(content)
+    # inline code `code`
+    escaped = _re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
+    # bold **text**
+    escaped = _re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", escaped)
+    # newlines
+    escaped = escaped.replace("\n", "<br>")
+    return escaped
+
+
+def render_bubble_html(content: str, role: str) -> str:
+    avatar = "👤" if role == "user" else "🤖"
+    return f"""
+    <div class="chat-row {role}">
+        <div class="chat-avatar">{avatar}</div>
+        <div class="chat-bubble {role}">{_format_bubble_text(content)}</div>
+    </div>
+    """
+
+
+def render_bubble(content: str, role: str):
+    st.markdown(render_bubble_html(content, role), unsafe_allow_html=True)
+
+
+# ---------------- Chat History / Empty State ----------------
+if len(st.session_state.messages) == 0:
+    st.markdown(
+        """
+        <div class="empty-state-wrapper">
+            <div class="empty-state-title">Hello! How can I assist you today?</div>
+            <div class="empty-state-subtitle">
+                I have access to your PDF knowledge base, mathematical tools, Wikipedia, and live stock queries.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+else:
+    st.markdown('<div class="chat-scroll-wrapper">', unsafe_allow_html=True)
+    for msg in st.session_state.messages:
+        if isinstance(msg, HumanMessage):
+            render_bubble(msg.content, "user")
+        elif isinstance(msg, AIMessage):
+            if msg.content:
+                render_bubble(msg.content, "assistant")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ---------------- Chat Input ----------------
 user_input = st.chat_input("Ask anything...")
@@ -394,8 +564,7 @@ if user_input:
     user_msg = HumanMessage(content=user_input)
     st.session_state.messages.append(user_msg)
 
-    with st.chat_message("user", avatar="👤"):
-        st.markdown(user_input)
+    render_bubble(user_input, "user")
 
     config = {
         "configurable": {
@@ -403,23 +572,28 @@ if user_input:
         }
     }
 
-    with st.chat_message("assistant", avatar="🤖"):
-        placeholder = st.empty()
-        full_response = ""
+    placeholder = st.empty()
+    full_response = ""
 
-        for chunk in workflow.stream(
-            {
-                "messages": [user_msg]
-            },
-            config=config,
-            stream_mode="values"
-        ):
-            ai_message = chunk["messages"][-1]
-            if isinstance(ai_message, AIMessage):
-                full_response = ai_message.content
-                placeholder.markdown(full_response + "▌")
+    for chunk in workflow.stream(
+        {
+            "messages": [user_msg]
+        },
+        config=config,
+        stream_mode="values"
+    ):
+        ai_message = chunk["messages"][-1]
+        if isinstance(ai_message, AIMessage):
+            full_response = ai_message.content
+            placeholder.markdown(
+                render_bubble_html(full_response + "▌", "assistant"),
+                unsafe_allow_html=True
+            )
 
-        placeholder.markdown(full_response)
+    placeholder.markdown(
+        render_bubble_html(full_response, "assistant"),
+        unsafe_allow_html=True
+    )
 
     st.session_state.messages.append(
         AIMessage(content=full_response)
