@@ -6,7 +6,9 @@ from langgraph.graph import StateGraph, START
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 
-from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
+from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage, HumanMessage, AIMessage
+from langchain_core.documents import Document
+from langchain_community.retrievers import BM25Retriever
 from langchain_core.tools import tool
 
 from langchain_groq import ChatGroq
@@ -16,7 +18,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 import sqlite3
 
 # Import retriever from your RAG file
-from rag import retriever
+from rag import retriever, vectorstore
 # Import new tools
 from tools import calculator, wikipedia_search, get_current_time, get_stock_price
 
@@ -72,6 +74,215 @@ Classification:"""
     except Exception:
         return False
 
+# ---------------- Advanced RAG / CRAG Helpers ---------------- #
+
+def rewrite_query(user_query: str, chat_history: list[BaseMessage]) -> str:
+    # Extract recent messages to provide context
+    history_text = ""
+    for msg in chat_history[-5:]: # last 5 messages
+        if isinstance(msg, HumanMessage):
+            history_text += f"User: {msg.content}\n"
+        elif isinstance(msg, AIMessage) and msg.content:
+            history_text += f"Assistant: {msg.content}\n"
+    
+    if not history_text:
+        return user_query
+
+    prompt = f"""System: You are an expert query rewriter. Your task is to take a user's latest query and the conversation history, and rewrite it into a single search query optimized for document retrieval (Vector DB and BM25 search).
+Do NOT answer the question. Just output the rewritten search query.
+If the query is self-contained and needs no context, output it as is.
+Do not add any preamble, explanation, or quotes.
+
+Conversation History:
+{history_text}
+
+User Query: {user_query}
+
+Search Query:"""
+    try:
+        response = llm.invoke(prompt)
+        rewritten = response.content.strip()
+        if (rewritten.startswith('"') and rewritten.endswith('"')) or (rewritten.startswith("'") and rewritten.endswith("'")):
+            rewritten = rewritten[1:-1].strip()
+        return rewritten if rewritten else user_query
+    except Exception:
+        return user_query
+
+def check_hallucination(context: str, response_text: str) -> str:
+    lower_res = response_text.lower()
+    if any(phrase in lower_res for phrase in ["no relevant information", "not found", "cannot find", "do not have", "unavailable"]):
+        return "no"
+
+    prompt = f"""System: You are an expert auditor evaluating if an assistant's response is grounded in and supported by the provided context.
+Your goal is to detect hallucinations (claims in the response that are not mentioned in the context).
+
+If the response contains any facts, claims, or information NOT supported by the context, reply with 'yes' (meaning there is a hallucination).
+If the response is completely supported by the context, reply with 'no' (meaning no hallucination).
+
+Do not write any other explanation. Just reply with 'yes' or 'no'.
+
+Context:
+{context}
+
+Response:
+{response_text}
+
+Contains Hallucination (yes/no):"""
+    try:
+        res = llm.invoke(prompt)
+        score = res.content.strip().lower()
+        if "yes" in score:
+            return "yes"
+        return "no"
+    except Exception:
+        return "no"
+
+def check_answer_relevance(query: str, response_text: str) -> str:
+    prompt = f"""System: You are an expert grader evaluating if an assistant's response resolves or answers the user's query.
+Reply 'yes' if the response addresses and answers the question, or correctly states that the information is unavailable.
+Reply 'no' if the response is completely irrelevant, off-topic, or fails to address the query.
+
+Do not write any other explanation. Just reply with 'yes' or 'no'.
+
+Query: {query}
+Response: {response_text}
+
+Answers Query (yes/no):"""
+    try:
+        res = llm.invoke(prompt)
+        score = res.content.strip().lower()
+        if "yes" in score:
+            return "yes"
+        return "no"
+    except Exception:
+        return "yes"
+
+def regenerate_grounded_response(query: str, context: str) -> AIMessage:
+    prompt = f"""You are a helpful assistant. You must answer the user's query based ONLY on the provided context.
+If the context does not contain the answer or if the context says no relevant information was found, you must state clearly that you cannot find the information in the uploaded documents.
+Do NOT make up any details, do NOT use external knowledge, and do NOT assume or extrapolate. Every fact in your response must be directly traceable to the context.
+
+Context:
+{context}
+
+User Query: {query}
+"""
+    messages = [
+        SystemMessage(content=prompt),
+        HumanMessage(content=query)
+    ]
+    try:
+        response = llm.invoke(messages)
+        return response
+    except Exception as e:
+        return AIMessage(content=f"I encountered an error generating the response: {str(e)}")
+
+_cached_bm25 = None
+_cached_doc_count = 0
+
+def get_uploaded_files():
+    import os
+    if os.path.exists("uploads"):
+        return [f for f in os.listdir("uploads") if f.endswith(".pdf")]
+    return []
+
+def route_query_to_files(query: str, uploaded_files: list[str]) -> list[str]:
+    if not uploaded_files:
+        return []
+    
+    files_list_str = "\n".join([f"- {f}" for f in uploaded_files])
+    prompt = f"""System: You are an expert routing assistant. Given a user search query and a list of uploaded PDF files, identify which files are likely to contain the answer to the query.
+If the query refers to a specific document type, name, or subject mentioned in a filename, select only those relevant files.
+For example:
+- A query about 'student name', 'certificate', or 'completion' matches files like 'cn certificate .pdf' or 'os certificate s24cseu1694.pdf' and does NOT match 'The_GALE_ENCYCLOPEDIA_of_MEDICINE_SECOND.pdf'.
+- A query about medical symptoms, conditions, or treatments matches 'The_GALE_ENCYCLOPEDIA_of_MEDICINE_SECOND.pdf'.
+- If the query is general, chit-chat, or it is unclear which file is relevant, select ALL files.
+
+Output ONLY the exact filenames, one per line. Do not include any other text, explanation, list symbols, or markdown.
+
+Uploaded Files:
+{files_list_str}
+
+User Query: {query}
+
+Relevant Files:"""
+    try:
+        response = llm.invoke(prompt)
+        selected = [line.strip() for line in response.content.split("\n") if line.strip()]
+        cleaned = []
+        for s in selected:
+            s_clean = s
+            if s_clean.startswith(("- ", "* ", "• ")):
+                s_clean = s_clean[2:]
+            elif s_clean.strip() and s_clean.strip()[0].isdigit() and s_clean.strip()[1:].startswith((". ", ") ")):
+                parts = s_clean.split(None, 1)
+                if len(parts) > 1:
+                    s_clean = parts[1]
+            s_clean = s_clean.strip()
+            if s_clean in uploaded_files:
+                cleaned.append(s_clean)
+        return cleaned if cleaned else uploaded_files
+    except Exception:
+        return uploaded_files
+
+def get_bm25_retriever(filter_sources: list[str] = None):
+    global _cached_bm25, _cached_doc_count
+    try:
+        if filter_sources:
+            if len(filter_sources) == 1:
+                where_clause = {"source": filter_sources[0]}
+            else:
+                where_clause = {"source": {"$in": filter_sources}}
+                
+            db_data = vectorstore.get(where=where_clause, include=["documents", "metadatas"])
+            all_texts = db_data.get("documents", [])
+            all_metadatas = db_data.get("metadatas", [])
+            
+            if all_texts:
+                langchain_docs = []
+                for text, meta in zip(all_texts, all_metadatas):
+                    if meta is None:
+                        meta = {}
+                    langchain_docs.append(Document(page_content=text, metadata=meta))
+                bm25 = BM25Retriever.from_documents(langchain_docs)
+                bm25.k = min(4, len(langchain_docs))
+                return bm25
+            return None
+
+        count = vectorstore._collection.count()
+        if count == 0:
+            return None
+        # Return cache if valid
+        if _cached_bm25 is not None and count == _cached_doc_count:
+            return _cached_bm25
+            
+        print(f"Rebuilding global BM25 index for {count} documents...")
+        all_texts = []
+        all_metadatas = []
+        batch_size = 1000
+        for offset in range(0, count, batch_size):
+            batch = vectorstore._collection.get(
+                limit=batch_size, 
+                offset=offset, 
+                include=["documents", "metadatas"]
+            )
+            all_texts.extend(batch.get("documents", []))
+            all_metadatas.extend(batch.get("metadatas", []))
+            
+        if all_texts:
+            langchain_docs = []
+            for text, meta in zip(all_texts, all_metadatas):
+                if meta is None:
+                    meta = {}
+                langchain_docs.append(Document(page_content=text, metadata=meta))
+            
+            _cached_bm25 = BM25Retriever.from_documents(langchain_docs)
+            _cached_doc_count = count
+            return _cached_bm25
+    except Exception as e:
+        print(f"Error building/retrieving BM25 index: {e}")
+    return None
+
 @tool
 def rag_tool(query: str):
     """
@@ -80,42 +291,65 @@ def rag_tool(query: str):
     questions that might be answered from the stored documents.
 
     """
+    # 1. Determine metadata filter dynamically using filenames
+    filter_dict = None
+    filter_sources = None
+    try:
+        uploaded_files = get_uploaded_files()
+        if uploaded_files:
+            relevant_files = route_query_to_files(query, uploaded_files)
+            if relevant_files and len(relevant_files) < len(uploaded_files):
+                filter_sources = [f"uploads/{f}" for f in relevant_files]
+                if len(filter_sources) == 1:
+                    filter_dict = {"source": filter_sources[0]}
+                else:
+                    filter_dict = {"source": {"$in": filter_sources}}
+                print(f"Routing query '{query}' to files: {relevant_files}")
+    except Exception as e:
+        print(f"Error routing query to files: {e}")
 
-    docs = retriever.invoke(query)
+    # 2. Hybrid Retrieval: Dense (Chroma) + Sparse (BM25)
+    dense_docs = []
+    try:
+        if filter_dict:
+            dense_docs = vectorstore.similarity_search(query, k=4, filter=filter_dict)
+        else:
+            dense_docs = retriever.invoke(query)
+    except Exception as e:
+        print(f"Dense retrieval error: {e}")
+        dense_docs = retriever.invoke(query)
     
-    # Deduplicate retrieved documents to save tokens and prevent context repetition
+    sparse_docs = []
+    try:
+        bm25 = get_bm25_retriever(filter_sources)
+        if bm25 is not None:
+            bm25.k = min(4, len(bm25.doc_list) if hasattr(bm25, "doc_list") else 4)
+            sparse_docs = bm25.invoke(query)
+    except Exception as e:
+        print(f"BM25 Retrieval error: {e}")
+
+    # Combine & Deduplicate
+    combined_docs = []
     seen_contents = set()
-    unique_docs = []
-    for doc in docs:
-        if doc.page_content not in seen_contents:
-            seen_contents.add(doc.page_content)
-            unique_docs.append(doc)
-    docs = unique_docs
+    for doc in sparse_docs + dense_docs:
+        content_key = doc.page_content.strip()
+        if content_key not in seen_contents:
+            seen_contents.add(content_key)
+            combined_docs.append(doc)
 
     is_general = is_general_knowledge_query(query)
     
+    # 3. Document Grading (CRAG)
     relevant_docs = []
-    need_search = False
-
-    if is_general:
-        if not docs:
-            need_search = True
-        else:
-            for doc in docs:
-                score = grade_document(query, doc.page_content)
-                if score == "yes":
-                    relevant_docs.append(doc)
-
-            if not relevant_docs:
-                need_search = True
-    else:
-        relevant_docs = docs
-        need_search = (len(docs) == 0)
+    for doc in combined_docs:
+        score = grade_document(query, doc.page_content)
+        if score == "yes":
+            relevant_docs.append(doc)
 
     context_list = [doc.page_content for doc in relevant_docs]
     
-    if need_search:
-        # Check if it is a general knowledge query before triggering Wikipedia fallback
+    # 4. Fallback Search / Error mitigation if no relevant docs found
+    if not relevant_docs:
         if is_general:
             try:
                 search_result = wikipedia_search.invoke(query)
@@ -123,7 +357,6 @@ def rag_tool(query: str):
             except Exception:
                 pass
         else:
-            # For local/document-specific questions, do not fall back to Wikipedia search
             context_list.append("[No relevant information found in the uploaded documents. Do not attempt to guess or use web search for local document questions.]")
 
     context = "\n\n".join(context_list)
@@ -192,6 +425,44 @@ def chat_node(state: ChatState):
     messages = [system_instruction] + pruned
 
     response = llm_with_tools.invoke(messages)
+
+    # Intercept tool calls to rewrite query using conversational history
+    if response.tool_calls:
+        new_tool_calls = []
+        for tc in response.tool_calls:
+            if tc["name"] == "rag_tool":
+                original_query = tc["args"].get("query", "")
+                if original_query:
+                    rewritten = rewrite_query(original_query, pruned)
+                    tc["args"]["query"] = rewritten
+            new_tool_calls.append(tc)
+        response.tool_calls = new_tool_calls
+        return {
+            "messages": [response]
+        }
+
+    # If this is a final response (no tool calls generated) and we just ran a RAG tool search,
+    # let's run the Groundedness and Relevance check to prevent hallucinations
+    last_message = pruned[-1] if pruned else None
+    if (
+        isinstance(last_message, ToolMessage)
+        and last_message.name == "rag_tool"
+    ):
+        context = last_message.content
+        user_query = ""
+        # Find the user's corresponding query
+        for msg in reversed(pruned):
+            if isinstance(msg, HumanMessage):
+                user_query = msg.content
+                break
+        
+        if user_query:
+            is_hallucinated = check_hallucination(context, response.content)
+            is_relevant = check_answer_relevance(user_query, response.content)
+            
+            if is_hallucinated == "yes" or is_relevant == "no":
+                # Self-correction loop: regenerate response strictly grounded in context
+                response = regenerate_grounded_response(user_query, context)
 
     return {
         "messages": [response]
